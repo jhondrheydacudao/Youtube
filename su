@@ -1,84 +1,66 @@
 // ==UserScript==
-// @name         YouLikeHits Auto YouTube Liker (Safe Version)
-// @namespace    https://greasyfork.org/users/your-username
-// @version      1.1
-// @description  Automates YouLikeHits YouTube likes with safe tab handling and notifications
+// @name         YouLikeHits Auto Like + Confirm + Refresh
+// @namespace    https://greasyfork.org/users/yourname
+// @version      1.3
+// @description  Automate YouLikeHits YouTube Like tasks with confirmation and delay
 // @match        *://youlikehits.com/youtubelikes.php*
+// @icon         https://youlikehits.com/favicon.ico
 // @grant        none
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    // ✅ Function to show notifications
-    function showNotification(message, type = 'info') {
+    const notify = (text, type = "info") => {
         const colors = {
-            info: '#2196F3',
-            success: '#4CAF50',
-            error: '#f44336'
+            info: "#2196F3",
+            success: "#4CAF50",
+            error: "#f44336"
         };
+        const div = document.createElement("div");
+        div.textContent = text;
+        Object.assign(div.style, {
+            position: "fixed",
+            top: "20px",
+            right: "20px",
+            background: colors[type] || "#555",
+            color: "#fff",
+            padding: "10px 16px",
+            borderRadius: "8px",
+            zIndex: 9999,
+            fontFamily: "Arial, sans-serif",
+            fontSize: "14px",
+            boxShadow: "0 0 10px rgba(0,0,0,0.3)"
+        });
+        document.body.appendChild(div);
+        setTimeout(() => div.remove(), 5000);
+    };
 
-        const box = document.createElement('div');
-        box.textContent = message;
-        box.style.position = 'fixed';
-        box.style.top = '20px';
-        box.style.right = '20px';
-        box.style.padding = '12px 18px';
-        box.style.background = colors[type] || '#333';
-        box.style.color = '#fff';
-        box.style.borderRadius = '8px';
-        box.style.fontFamily = 'Arial, sans-serif';
-        box.style.fontSize = '14px';
-        box.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-        box.style.zIndex = 9999;
-        document.body.appendChild(box);
-
-        setTimeout(() => {
-            box.remove();
-        }, 5000); // Auto-remove after 5s
-    }
-
-    // ✅ Main logic
-    function main() {
-        const likeBtn = document.querySelector('.followbutton, input[value="Like Video"]');
-
-        if (!likeBtn) {
-            showNotification("Like Video button not found.", "error");
-            return;
+    const clickLikeVideo = () => {
+        const likeBtn = [...document.querySelectorAll("input")].find(btn => btn.value === "Like Video");
+        if (likeBtn) {
+            notify("➡️ Clicking 'Like Video' button...", "info");
+            likeBtn.click();
         }
+    };
 
-        showNotification("Opening video tab...", "info");
+    const confirmLike = () => {
+        const confirmBtn = [...document.querySelectorAll("input")].find(btn => btn.value === "Confirm Like");
+        if (confirmBtn) {
+            notify("👍 Confirming Like...", "success");
+            confirmBtn.click();
+            notify("⏳ Waiting 30 seconds for points...", "info");
 
-        // Open blank window first to avoid popup blockers
-        const newTab = window.open('', '_blank');
-
-        if (!newTab) {
-            showNotification("Popup blocked! Allow popups for this site.", "error");
-            return;
+            setTimeout(() => {
+                notify("🔁 Reloading for next video...", "info");
+                location.reload();
+            }, 30000);
         }
+    };
 
-        // Simulate button click to assign YouTube URL to new tab
-        likeBtn.click();
-
-        // Wait a little for redirection
-        setTimeout(() => {
-            // Start polling to check if tab is closed
-            const checkClosed = setInterval(() => {
-                if (newTab.closed) {
-                    clearInterval(checkClosed);
-                    showNotification("Video tab closed. Points may be awarded.", "success");
-
-                    // Reload after short delay
-                    setTimeout(() => {
-                        location.reload();
-                    }, 2000);
-                }
-            }, 1000);
-        }, 500); // delay allows YouLikeHits to assign href to opened tab
-    }
-
-    // ✅ Run on page load
-    window.addEventListener('load', () => {
-        setTimeout(main, 1000);
-    });
+    // Run auto-actions after small delay to ensure page loads
+    setTimeout(() => {
+        confirmLike();      // Try confirm like first (if you're already back)
+        clickLikeVideo();   // Then try clicking Like Video if no confirm
+    }, 1500);
 })();

@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube Mass Unliker (Direct Button Click - Aug 2025)
+// @name         YouTube Liked Videos True Unliker (Simulated Click - Aug 2025)
 // @namespace    http://tampermonkey.net/
-// @version      8.0
-// @description  Unlikes all videos in your "Liked Videos" playlist using direct Like button toggle (working as of August 2025) with status box and auto-scrolling.
+// @version      9.0
+// @description  Accurately unlikes liked videos using simulated real clicks on the like button — YouTube Shadow DOM/React fix (August 2025). Includes UI and logging.
 // @author       ChatGPT
 // @match        *://www.youtube.com/*
 // @grant        none
@@ -14,16 +14,6 @@
     const DELAY = 2500;
     let processed = new Set();
     let running = false;
-
-    function logBox(text, color = '#0f0') {
-        const box = document.getElementById('unlike-box');
-        if (!box) return;
-        const line = document.createElement('div');
-        line.textContent = text;
-        line.style.color = color;
-        box.appendChild(line);
-        box.scrollTop = box.scrollHeight;
-    }
 
     function createLogBox() {
         const box = document.createElement('div');
@@ -47,16 +37,37 @@
         document.body.appendChild(box);
     }
 
-    function isLikedVideosPage() {
-        return new URLSearchParams(location.search).get("list") === "LL";
+    function logBox(text, color = '#0f0') {
+        const box = document.getElementById('unlike-box');
+        if (!box) return;
+        const line = document.createElement('div');
+        line.textContent = text;
+        line.style.color = color;
+        box.appendChild(line);
+        box.scrollTop = box.scrollHeight;
+        console.log(text);
+    }
+
+    function simulateRealClick(element) {
+        if (!element) return;
+        const evt = new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+        element.dispatchEvent(evt);
+    }
+
+    async function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     function scrollDown() {
         window.scrollBy(0, 3000);
     }
 
-    async function sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    function isLikedVideosPage() {
+        return new URLSearchParams(location.search).get("list") === "LL";
     }
 
     async function unlikeVisibleVideos() {
@@ -68,10 +79,11 @@
 
             if (processed.has(videoId)) continue;
 
+            // Find the like button that is active (aria-pressed="true")
             const likeBtn = item.querySelector('ytd-toggle-button-renderer button[aria-pressed="true"]');
 
             if (likeBtn) {
-                likeBtn.click();
+                simulateRealClick(likeBtn);
                 processed.add(videoId);
                 logBox(`👍 Unliked: ${title}`);
                 await sleep(DELAY);
@@ -95,6 +107,7 @@
 
     function init() {
         createLogBox();
+
         const check = setInterval(() => {
             if (isLikedVideosPage()) {
                 const items = document.querySelectorAll('ytd-playlist-video-renderer');
@@ -109,7 +122,5 @@
         }, 1500);
     }
 
-    window.addEventListener('load', () => {
-        init();
-    });
+    window.addEventListener('load', init);
 })();

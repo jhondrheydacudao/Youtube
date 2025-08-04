@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube Liked Videos Force-Unlike (Polymer Internal)
+// @name         YouTube Liked Videos Force-Unliker (Stable v2)
 // @namespace    http://tampermonkey.net/
-// @version      10.0
-// @description  Force unlike liked videos using YouTube's internal component structure. Updated August 2025 for Polymer/React compatibility.
+// @version      10.1
+// @description  Force-unlikes liked videos from the 'Liked Videos' playlist using native button clicks with robust error handling (Aug 2025 safe).
 // @author       ChatGPT
 // @match        *://www.youtube.com/*
 // @grant        none
@@ -44,7 +44,7 @@
             borderRadius: '8px',
             boxShadow: '0 0 10px rgba(0,255,0,0.4)'
         });
-        box.innerHTML = '<b>🟢 YouTube Force-Unliker</b><br>';
+        box.innerHTML = '<b>🟢 YouTube Mass Unliker</b><br>';
         document.body.appendChild(box);
     }
 
@@ -53,50 +53,44 @@
     }
 
     function scrollDown() {
-        window.scrollBy(0, 3000);
+        window.scrollBy(0, 4000);
     }
 
     async function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async function forceUnlike(buttonRenderer) {
-        // Accessing Polymer's internal toggle button logic
+    async function unlikeItem(item) {
         try {
-            const toggleButton = buttonRenderer.querySelector('ytd-toggle-button-renderer');
-            if (!toggleButton) return false;
+            const title = item.querySelector('#video-title')?.textContent.trim() || 'Untitled';
+            const videoId = item.dataset.videoId || item.querySelector('a')?.href.split('v=')[1];
 
-            const btn = toggleButton.querySelector('button');
-            const isLiked = btn?.getAttribute('aria-pressed') === "true";
+            if (processed.has(videoId)) return;
 
-            if (!isLiked) return false;
+            const likeButtonRenderer = item.querySelector('ytd-toggle-button-renderer[is-icon-button][aria-pressed="true"]');
+            const button = likeButtonRenderer?.querySelector('button');
 
-            // This will force YouTube's internal event to fire
-            btn.click();  // still try native click
-            return true;
+            if (!button) {
+                logBox(`⚠️ Could not find Like button for: ${title}`, 'yellow');
+                return;
+            }
+
+            // Simulate click
+            button.click();
+
+            logBox(`👍 Unliked: ${title}`);
+            processed.add(videoId);
+            await sleep(DELAY);
         } catch (err) {
-            logBox(`❌ Error while unliking: ${err.message}`, 'red');
-            return false;
+            logBox(`❌ Error unliking video: ${err.message}`, 'red');
         }
     }
 
     async function unlikeVisibleVideos() {
-        const videoItems = document.querySelectorAll('ytd-playlist-video-renderer');
+        const videos = document.querySelectorAll('ytd-playlist-video-renderer');
 
-        for (const item of videoItems) {
-            const videoId = item.dataset.videoId;
-            const title = item.querySelector('#video-title')?.textContent.trim() || 'Untitled';
-
-            if (processed.has(videoId)) continue;
-
-            const success = await forceUnlike(item);
-            if (success) {
-                processed.add(videoId);
-                logBox(`👍 Force-Unliked: ${title}`);
-                await sleep(DELAY);
-            } else {
-                logBox(`⏭️ Skipped (already unliked or error): ${title}`, '#aaa');
-            }
+        for (const item of videos) {
+            await unlikeItem(item);
         }
     }
 
@@ -104,10 +98,10 @@
         if (running) return;
         running = true;
 
-        logBox('✅ Starting YouTube Force-Unliker...');
+        logBox('✅ Starting mass unlike script...');
         while (true) {
             scrollDown();
-            await sleep(1500);
+            await sleep(2000);
             await unlikeVisibleVideos();
         }
     }
@@ -119,10 +113,10 @@
                 const items = document.querySelectorAll('ytd-playlist-video-renderer');
                 if (items.length > 0) {
                     clearInterval(check);
-                    logBox('🎯 Detected Liked Videos page. Beginning force-unlike...');
+                    logBox('🎯 Detected Liked Videos page. Starting...');
                     run();
                 } else {
-                    logBox('⌛ Waiting for playlist videos to load...', '#ff0');
+                    logBox('⌛ Waiting for videos to load...', '#ff0');
                 }
             }
         }, 1500);

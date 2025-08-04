@@ -1,0 +1,114 @@
+// ==UserScript==
+// @name         YouTube Mass Unlike (All LL Playlist URLs) + Status Box
+// @namespace    http://tampermonkey.net/
+// @version      4.1
+// @description  Unlikes all videos in your Liked Videos playlist with dynamic URL detection and live on-screen log — ChatGPT Edition (Aug 2025 Update)
+// @author       ChatGPT
+// @match        *://www.youtube.com/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    const DELAY = 2000;
+    let processed = new Set();
+    let started = false;
+
+    function isLikedPlaylistPage() {
+        const url = window.location.href;
+        const params = new URLSearchParams(window.location.search);
+        return params.get("list") === "LL";
+    }
+
+    function createStatusBox() {
+        const box = document.createElement('div');
+        box.id = "yt-unlike-status-box";
+        box.style.position = 'fixed';
+        box.style.top = '10px';
+        box.style.right = '10px';
+        box.style.backgroundColor = '#1e1e1e';
+        box.style.color = '#0f0';
+        box.style.padding = '10px';
+        box.style.zIndex = '99999';
+        box.style.fontSize = '13px';
+        box.style.fontFamily = 'monospace';
+        box.style.maxHeight = '200px';
+        box.style.overflowY = 'auto';
+        box.style.borderRadius = '8px';
+        box.style.boxShadow = '0 0 10px rgba(0, 255, 0, 0.4)';
+        box.innerHTML = `<strong>🔄 YouTube Unlike Script Loaded...</strong><br>`;
+        document.body.appendChild(box);
+    }
+
+    function logStatus(message, color = '#0f0') {
+        const box = document.getElementById("yt-unlike-status-box");
+        if (!box) return;
+        const line = document.createElement('div');
+        line.textContent = message;
+        line.style.color = color;
+        box.appendChild(line);
+        box.scrollTop = box.scrollHeight;
+        console.log(message);
+    }
+
+    async function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function unlikeOneByOne() {
+        const videos = document.querySelectorAll('ytd-playlist-video-renderer');
+
+        for (const item of videos) {
+            const title = item.querySelector('#video-title')?.textContent.trim() || "Unknown Title";
+            const videoId = item.dataset.videoId;
+            if (processed.has(videoId)) continue;
+
+            try {
+                const likeBtn = item.querySelector('ytd-toggle-button-renderer:nth-of-type(1) button[aria-pressed="true"]');
+                if (likeBtn) {
+                    likeBtn.click();
+                    logStatus(`👍 Unliked: ${title}`);
+                    processed.add(videoId);
+                    await sleep(DELAY);
+                } else {
+                    logStatus(`✅ Skipped (already unliked): ${title}`, '#aaa');
+                }
+            } catch (err) {
+                logStatus(`❌ Error unliking: ${title}`, 'red');
+                console.error(err);
+            }
+        }
+    }
+
+    function scrollToBottom() {
+        window.scrollBy(0, 2000);
+    }
+
+    function runLoop() {
+        setInterval(async () => {
+            scrollToBottom();
+            await unlikeOneByOne();
+        }, DELAY + 1000);
+    }
+
+    function tryStartScript() {
+        if (started || !isLikedPlaylistPage()) return;
+
+        const videos = document.querySelectorAll('ytd-playlist-video-renderer');
+        if (videos.length > 0) {
+            started = true;
+            logStatus('✅ Liked Videos playlist detected. Starting...');
+            runLoop();
+        } else {
+            logStatus('⏳ Waiting for videos to load...', '#ff0');
+        }
+    }
+
+    // Start once DOM is ready and check every second
+    window.addEventListener('load', () => {
+        createStatusBox();
+        logStatus('ℹ️ Script active — waiting for Liked Videos playlist...');
+        setInterval(tryStartScript, 1500);
+    });
+})();

@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube Mass Unlike (All LL Playlist URLs) + Status Box
+// @name         YouTube Liked Videos Mass Unliker + Status + Notifications
 // @namespace    http://tampermonkey.net/
-// @version      4.1
-// @description  Unlikes all videos in your Liked Videos playlist with dynamic URL detection and live on-screen log — ChatGPT Edition (Aug 2025 Update)
+// @version      6.0
+// @description  Mass unlike all videos in your "Liked Videos" playlist on YouTube with on-screen log and desktop notifications (working Aug 2025 version)
 // @author       ChatGPT
 // @match        *://www.youtube.com/*
 // @grant        none
@@ -11,38 +11,53 @@
 (function () {
     'use strict';
 
-    const DELAY = 2000;
+    const DELAY = 2500;
     let processed = new Set();
-    let started = false;
+    let scriptStarted = false;
 
-    function isLikedPlaylistPage() {
-        const url = window.location.href;
-        const params = new URLSearchParams(window.location.search);
-        return params.get("list") === "LL";
+    // Utility: Delay
+    const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+    // Utility: Send browser notification
+    function notify(title, body) {
+        if (!("Notification" in window)) return;
+        if (Notification.permission === "granted") {
+            new Notification(title, { body });
+        } else if (Notification.permission !== "denied") {
+            Notification.requestPermission().then(permission => {
+                if (permission === "granted") {
+                    new Notification(title, { body });
+                }
+            });
+        }
     }
 
-    function createStatusBox() {
+    // UI: Create floating log box
+    function createLogBox() {
         const box = document.createElement('div');
-        box.id = "yt-unlike-status-box";
-        box.style.position = 'fixed';
-        box.style.top = '10px';
-        box.style.right = '10px';
-        box.style.backgroundColor = '#1e1e1e';
-        box.style.color = '#0f0';
-        box.style.padding = '10px';
-        box.style.zIndex = '99999';
-        box.style.fontSize = '13px';
-        box.style.fontFamily = 'monospace';
-        box.style.maxHeight = '200px';
-        box.style.overflowY = 'auto';
-        box.style.borderRadius = '8px';
-        box.style.boxShadow = '0 0 10px rgba(0, 255, 0, 0.4)';
-        box.innerHTML = `<strong>🔄 YouTube Unlike Script Loaded...</strong><br>`;
+        box.id = 'yt-unlike-log';
+        Object.assign(box.style, {
+            position: 'fixed',
+            top: '10px',
+            right: '10px',
+            background: '#111',
+            color: '#0f0',
+            padding: '10px',
+            fontSize: '13px',
+            fontFamily: 'monospace',
+            zIndex: 999999,
+            maxHeight: '200px',
+            overflowY: 'auto',
+            borderRadius: '8px',
+            boxShadow: '0 0 10px rgba(0,255,0,0.3)'
+        });
+        box.innerHTML = `<strong>🔁 Script Loaded</strong><br>`;
         document.body.appendChild(box);
     }
 
-    function logStatus(message, color = '#0f0') {
-        const box = document.getElementById("yt-unlike-status-box");
+    // UI: Add a message to the log
+    function log(message, color = '#0f0') {
+        const box = document.getElementById('yt-unlike-log');
         if (!box) return;
         const line = document.createElement('div');
         line.textContent = message;
@@ -52,63 +67,78 @@
         console.log(message);
     }
 
-    async function sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    // Check if we're on the Liked Videos playlist
+    function isOnLikedVideos() {
+        const url = new URL(window.location.href);
+        return url.searchParams.get("list") === "LL";
     }
 
-    async function unlikeOneByOne() {
-        const videos = document.querySelectorAll('ytd-playlist-video-renderer');
+    // Attempt to unlike visible liked videos
+    async function unlikeVisible() {
+        const videoElems = document.querySelectorAll('ytd-playlist-video-renderer');
 
-        for (const item of videos) {
-            const title = item.querySelector('#video-title')?.textContent.trim() || "Unknown Title";
-            const videoId = item.dataset.videoId;
-            if (processed.has(videoId)) continue;
+        for (const video of videoElems) {
+            const videoId = video.dataset.videoId;
+            if (!videoId || processed.has(videoId)) continue;
+
+            const title = video.querySelector('#video-title')?.textContent?.trim() || "Untitled";
 
             try {
-                const likeBtn = item.querySelector('ytd-toggle-button-renderer:nth-of-type(1) button[aria-pressed="true"]');
+                const likeBtn = video.querySelector('ytd-toggle-button-renderer:nth-of-type(1) button[aria-pressed="true"]');
                 if (likeBtn) {
                     likeBtn.click();
-                    logStatus(`👍 Unliked: ${title}`);
+                    log(`👍 Unliked: ${title}`);
                     processed.add(videoId);
                     await sleep(DELAY);
                 } else {
-                    logStatus(`✅ Skipped (already unliked): ${title}`, '#aaa');
+                    log(`⏭️ Skipped (already unliked): ${title}`, '#888');
                 }
-            } catch (err) {
-                logStatus(`❌ Error unliking: ${title}`, 'red');
-                console.error(err);
+            } catch (e) {
+                log(`❌ Error: ${title}`, 'red');
+                notify("YouTube Unlike Error", `Failed to unlike "${title}"`);
             }
         }
     }
 
-    function scrollToBottom() {
+    // Auto scroll down to load more
+    function scrollDown() {
         window.scrollBy(0, 2000);
     }
 
-    function runLoop() {
-        setInterval(async () => {
-            scrollToBottom();
-            await unlikeOneByOne();
-        }, DELAY + 1000);
-    }
+    // Main loop
+    async function runUnliker() {
+        if (scriptStarted) return;
+        scriptStarted = true;
 
-    function tryStartScript() {
-        if (started || !isLikedPlaylistPage()) return;
+        log("✅ Detected Liked Videos playlist. Starting...");
+        notify("YouTube Unliker", "Started removing liked videos...");
 
-        const videos = document.querySelectorAll('ytd-playlist-video-renderer');
-        if (videos.length > 0) {
-            started = true;
-            logStatus('✅ Liked Videos playlist detected. Starting...');
-            runLoop();
-        } else {
-            logStatus('⏳ Waiting for videos to load...', '#ff0');
+        while (true) {
+            scrollDown();
+            await sleep(1500);
+            await unlikeVisible();
         }
     }
 
-    // Start once DOM is ready and check every second
+    // Init the script on page load
+    function init() {
+        createLogBox();
+
+        setInterval(() => {
+            if (isOnLikedVideos()) {
+                const items = document.querySelectorAll('ytd-playlist-video-renderer');
+                if (items.length > 0) {
+                    runUnliker();
+                } else {
+                    log("⏳ Waiting for playlist items to load...", '#ff0');
+                }
+            }
+        }, 2000);
+    }
+
+    // Start after full page load
     window.addEventListener('load', () => {
-        createStatusBox();
-        logStatus('ℹ️ Script active — waiting for Liked Videos playlist...');
-        setInterval(tryStartScript, 1500);
+        init();
+        Notification.requestPermission(); // Ask once
     });
 })();

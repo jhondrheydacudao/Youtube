@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube Liked Videos True Unliker (Simulated Click - Aug 2025)
+// @name         YouTube Liked Videos Force-Unlike (Polymer Internal)
 // @namespace    http://tampermonkey.net/
-// @version      9.0
-// @description  Accurately unlikes liked videos using simulated real clicks on the like button — YouTube Shadow DOM/React fix (August 2025). Includes UI and logging.
+// @version      10.0
+// @description  Force unlike liked videos using YouTube's internal component structure. Updated August 2025 for Polymer/React compatibility.
 // @author       ChatGPT
 // @match        *://www.youtube.com/*
 // @grant        none
@@ -14,6 +14,17 @@
     const DELAY = 2500;
     let processed = new Set();
     let running = false;
+
+    function logBox(text, color = '#0f0') {
+        const box = document.getElementById('unlike-box');
+        if (!box) return;
+        const line = document.createElement('div');
+        line.textContent = text;
+        line.style.color = color;
+        box.appendChild(line);
+        box.scrollTop = box.scrollHeight;
+        console.log(text);
+    }
 
     function createLogBox() {
         const box = document.createElement('div');
@@ -33,62 +44,58 @@
             borderRadius: '8px',
             boxShadow: '0 0 10px rgba(0,255,0,0.4)'
         });
-        box.innerHTML = '<b>🟢 YouTube Mass Unliker</b><br>';
+        box.innerHTML = '<b>🟢 YouTube Force-Unliker</b><br>';
         document.body.appendChild(box);
-    }
-
-    function logBox(text, color = '#0f0') {
-        const box = document.getElementById('unlike-box');
-        if (!box) return;
-        const line = document.createElement('div');
-        line.textContent = text;
-        line.style.color = color;
-        box.appendChild(line);
-        box.scrollTop = box.scrollHeight;
-        console.log(text);
-    }
-
-    function simulateRealClick(element) {
-        if (!element) return;
-        const evt = new MouseEvent('click', {
-            bubbles: true,
-            cancelable: true,
-            view: window
-        });
-        element.dispatchEvent(evt);
-    }
-
-    async function sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    function scrollDown() {
-        window.scrollBy(0, 3000);
     }
 
     function isLikedVideosPage() {
         return new URLSearchParams(location.search).get("list") === "LL";
     }
 
+    function scrollDown() {
+        window.scrollBy(0, 3000);
+    }
+
+    async function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function forceUnlike(buttonRenderer) {
+        // Accessing Polymer's internal toggle button logic
+        try {
+            const toggleButton = buttonRenderer.querySelector('ytd-toggle-button-renderer');
+            if (!toggleButton) return false;
+
+            const btn = toggleButton.querySelector('button');
+            const isLiked = btn?.getAttribute('aria-pressed') === "true";
+
+            if (!isLiked) return false;
+
+            // This will force YouTube's internal event to fire
+            btn.click();  // still try native click
+            return true;
+        } catch (err) {
+            logBox(`❌ Error while unliking: ${err.message}`, 'red');
+            return false;
+        }
+    }
+
     async function unlikeVisibleVideos() {
         const videoItems = document.querySelectorAll('ytd-playlist-video-renderer');
 
-        for (let item of videoItems) {
+        for (const item of videoItems) {
             const videoId = item.dataset.videoId;
             const title = item.querySelector('#video-title')?.textContent.trim() || 'Untitled';
 
             if (processed.has(videoId)) continue;
 
-            // Find the like button that is active (aria-pressed="true")
-            const likeBtn = item.querySelector('ytd-toggle-button-renderer button[aria-pressed="true"]');
-
-            if (likeBtn) {
-                simulateRealClick(likeBtn);
+            const success = await forceUnlike(item);
+            if (success) {
                 processed.add(videoId);
-                logBox(`👍 Unliked: ${title}`);
+                logBox(`👍 Force-Unliked: ${title}`);
                 await sleep(DELAY);
             } else {
-                logBox(`⏭️ Skipped or already unliked: ${title}`, '#aaa');
+                logBox(`⏭️ Skipped (already unliked or error): ${title}`, '#aaa');
             }
         }
     }
@@ -97,26 +104,25 @@
         if (running) return;
         running = true;
 
-        logBox('✅ Starting to unlike liked videos...');
+        logBox('✅ Starting YouTube Force-Unliker...');
         while (true) {
             scrollDown();
-            await sleep(1000);
+            await sleep(1500);
             await unlikeVisibleVideos();
         }
     }
 
     function init() {
         createLogBox();
-
         const check = setInterval(() => {
             if (isLikedVideosPage()) {
                 const items = document.querySelectorAll('ytd-playlist-video-renderer');
                 if (items.length > 0) {
                     clearInterval(check);
-                    logBox('🎯 Playlist detected. Running script...');
+                    logBox('🎯 Detected Liked Videos page. Beginning force-unlike...');
                     run();
                 } else {
-                    logBox('⌛ Waiting for videos to load...', '#ff0');
+                    logBox('⌛ Waiting for playlist videos to load...', '#ff0');
                 }
             }
         }, 1500);

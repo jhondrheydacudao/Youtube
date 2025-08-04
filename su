@@ -1,0 +1,229 @@
+// ==UserScript==
+// @name         YouLikeHits Bot + Notifier
+// @namespace    https://github.com/gekkedev/youlikehitsbot
+// @version      0.5.3
+// @description  Interacts with YLH automatically + toast notifications for actions/errors every 5s auto-clear.
+// @author       
+// @match        *://*.youlikehits.com/login.php
+// @match        *://*.youlikehits.com/soundcloudplays.php*
+// @match        *://*.youlikehits.com/websites.php*
+// @match        *://*.youlikehits.com/viewwebsite.php*
+// @match        *://*.youlikehits.com/youtubenew2.php*
+// @match        *://*.youlikehits.com/youtubelikes.php*
+// @match        *://*.youlikehits.com/bonuspoints.php*
+// @grant        GM.getValue
+// @grant        GM.setValue
+// @require      https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js
+// @require      https://greasemonkey.github.io/gm4-polyfill/gm4-polyfill.js
+// @require      https://cdn.jsdelivr.net/gh/naptha/tesseract.js/dist/tesseract.min.js
+// ==/UserScript==
+
+(() => {
+    const J = jQuery.noConflict(true);
+    const globalInterval = 2000;
+    let previousVideo = "";
+    let shownWarnings = [];
+
+    // ========== Notification System ==========
+    const showNotification = (message, type = 'info') => {
+        const id = `notif-${Date.now()}`;
+        const colors = {
+            info: "#3498db",
+            success: "#2ecc71",
+            error: "#e74c3c",
+            warning: "#f39c12"
+        };
+        const color = colors[type] || "#999";
+
+        const notif = J(`<div id="${id}" style="position:fixed;top:20px;right:20px;z-index:99999;
+            background:${color};color:white;padding:10px 15px;border-radius:5px;
+            font-family:sans-serif;font-size:14px;box-shadow:0 0 10px rgba(0,0,0,0.3);">
+            ${message}</div>`);
+        J("body").append(notif);
+
+        setTimeout(() => {
+            notif.fadeOut(300, () => notif.remove());
+        }, 5000);
+    };
+
+    // ========== Captcha Solver ==========
+    const solveCaptcha = (imageEl, outputEl, captchaIdentifier, callback = () => {}) => {
+        if (window[captchaIdentifier] === undefined) {
+            window[captchaIdentifier] = true;
+            const note = attachNotification(imageEl, "Solving captcha... Please wait.");
+            Tesseract.recognize(J(imageEl).attr("src"), 'eng').then(result => {
+                let formula = result.text;
+                if (formula.length === 3) {
+                    if (formula.substr(1, 1) === "7") {
+                        formula = formula.substr(0, 1) + "-" + formula.substr(2);
+                    }
+                    formula = formula.replace(/x/g, "*").replace(/[} ]/g, "");
+                    outputEl.val(eval(formula));
+                    window[captchaIdentifier] = false;
+                    removeNotification(note);
+                    callback();
+                } else {
+                    showNotification("Captcha unreadable, skipping...", "error");
+                }
+            }).catch(() => {
+                showNotification("Captcha recognition error.", "error");
+            });
+        }
+    };
+
+    const attachNotification = (identifier, notification) => {
+        const el = "<p style='color: red;'>Bot says: <i>" + notification + "</i></p>";
+        const prevEl = J(identifier).prev()[0];
+        if (prevEl === undefined || !prevEl.innerText.includes(notification)) {
+            return J(el).insertBefore(identifier);
+        }
+    };
+
+    const removeNotification = (el) => {
+        if (el !== undefined) el.remove();
+    };
+
+    const randomSeconds = (from, to) => {
+        return Math.floor(Math.random() * (to - from + 1) + from) * 1000;
+    };
+
+    const alertOnce = (message, identifier) => {
+        const localIdentifier = identifier || message;
+        if (!shownWarnings.includes(localIdentifier)) {
+            shownWarnings.push(localIdentifier);
+            showNotification(message, "warning");
+        }
+    };
+
+    // ========== Main Bot Logic ==========
+    const mainLoop = setInterval(() => {
+        if (J("*:contains('503 Service Unavailable')").length) {
+            showNotification("503 Error, reloading...", "error");
+            location.reload();
+        } else if (J("*:contains('not logged in!')").length) {
+            window.location.href = "login.php";
+        } else if (J("*:contains('Failed. You did not successfully solve the problem.')").length) {
+            showNotification("Captcha failed, retrying...", "error");
+            J("a:contains('Try Again')")[0].click();
+        } else {
+            switch (document.location.pathname) {
+                case "/login.php":
+                    if (!J("#password").val().length) attachNotification("#username", "Consider storing your login data.");
+                    const captcha = J("img[alt='Enter The Numbers']");
+                    if (captcha.length) solveCaptcha(captcha[0], J("input[name='postcaptcha']"), "ylh_login_captchasolving");
+                    break;
+
+                case "/bonuspoints.php":
+                    if (J("body:contains('You have made ')").length && J("body:contains(' Hits out of ')").length) {
+                        const reloadDelay = randomSeconds(60, 300);
+                        showNotification("Not enough bonus points. Reloading in a few minutes...", "info");
+                        setTimeout(() => location.reload(), reloadDelay);
+                        clearInterval(mainLoop);
+                    } else if (J(".buybutton").length) {
+                        J(".buybutton")[0].click();
+                        showNotification("Claimed bonus points!", "success");
+                    }
+                    break;
+
+                case "/soundcloudplays.php":
+                    if (!J(".maintable span[id*='count']").attr("style").includes("display:none;"))
+                        return attachNotification(".maintable", "Music already playing...");
+                    if (J(".followbutton").length) {
+                        J(".followbutton").first().click();
+                        showNotification("SoundCloud play started", "success");
+                    } else {
+                        showNotification("No follow button found!", "error");
+                    }
+                    break;
+
+                case "/youtubenew2.php":
+                case "/youtubelikes.php":
+                    if (J('body:contains("failed")').length) {
+                        location.reload();
+                        showNotification("Captcha failed, refreshing...", "error");
+                    }
+
+                    if (J(".followbutton").length) {
+                        const vidID = () => J(".followbutton").first().parent().children("span[id*='count']").attr("id");
+                        const patienceKiller = (prev) => {
+                            setTimeout(() => {
+                                if (vidID() === prev) {
+                                    J(".followbutton").parent().children("a:contains('Skip')").click();
+                                    showNotification("Skipped stuck video.", "warning");
+                                    if (window.newWin) newWin.close();
+                                }
+                            }, 135000);
+                        };
+
+                        if (vidID() !== previousVideo) {
+                            previousVideo = vidID();
+                            if (typeof window.newWin !== "undefined" && newWin.closed) {
+                                J(".followbutton")[0].click();
+                                showNotification("Liked video!", "success");
+                                patienceKiller(previousVideo);
+                            } else {
+                                J(".followbutton")[0].click();
+                                showNotification("Liked video!", "success");
+                                patienceKiller(previousVideo);
+                            }
+                        }
+                    } else {
+                        const captcha = J("img[src*='captchayt']");
+                        if (captcha.length) {
+                            solveCaptcha(captcha[0], J("input[name='answer']"), "ylh_yt_like_captchasolving", () => {
+                                J("input[value='Submit']").first().click();
+                                showNotification("Captcha solved, submitted!", "success");
+                            });
+                        }
+                    }
+                    break;
+            }
+
+            // Secondary loop for website surfing
+            GM.getValue("ylh_traffic_tab_open", false).then(state => {
+                switch (document.location.pathname) {
+                    case "/websites.php":
+                        if (J("*:contains('There are no Websites currently visitable for Points')").length) {
+                            alertOnce("All websites were visited. Come back later.", "websites_empty");
+                        } else {
+                            if (!state && typeof window.childWindow !== "undefined" && !childWindow.closed) {
+                                childWindow.close();
+                            } else if (state && typeof window.childWindow === "undefined") {
+                                state = false;
+                            }
+
+                            const buttons = J(".followbutton:visible");
+                            if (buttons.length && !state) {
+                                GM.setValue('ylh_traffic_tab_open', true).then(() => {
+                                    buttons[0].onclick();
+                                    showNotification("Started new website visit!", "success");
+                                });
+                            } else if (!buttons.length && typeof window.childWindow !== "undefined" && childWindow.closed) {
+                                location.reload();
+                                showNotification("Reloading for new websites...", "info");
+                            }
+                        }
+                        break;
+
+                    case "/viewwebsite.php":
+                        if (!J("*:contains('been logged out of YouLikeHits')").length) {
+                            if (
+                                J(".alert:visible:contains('You got'):contains('Points')").length ||
+                                J("body:contains(\"We couldn't locate the website\")").length ||
+                                J("body:contains('You have successfully reported')").length
+                            ) {
+                                GM.setValue('ylh_traffic_tab_open', false);
+                                showNotification("Finished website view, ready for next!", "success");
+                            } else if (J("*:contains('viewing websites too quickly! Please wait')").length) {
+                                location.reload();
+                                showNotification("Rate limited, retrying...", "error");
+                            }
+                        } else {
+                            showNotification("Session expired. Please login again.", "error");
+                        }
+                        break;
+                }
+            });
+        }
+    }, globalInterval);
+})();

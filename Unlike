@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube Liked Videos Mass Unliker (Working Aug 2025)
+// @name         YouTube Mass Unliker (Direct Button Click - Aug 2025)
 // @namespace    http://tampermonkey.net/
-// @version      7.0
-// @description  Mass unlike liked videos on YouTube with working selectors, scrolling, UI, and notifications — verified Aug 2025 layout fix by ChatGPT.
+// @version      8.0
+// @description  Unlikes all videos in your "Liked Videos" playlist using direct Like button toggle (working as of August 2025) with status box and auto-scrolling.
 // @author       ChatGPT
 // @match        *://www.youtube.com/*
 // @grant        none
@@ -12,129 +12,104 @@
     'use strict';
 
     const DELAY = 2500;
-    let started = false;
     let processed = new Set();
+    let running = false;
 
-    function createUI() {
-        const box = document.createElement('div');
-        box.id = 'yt-unlike-status';
-        Object.assign(box.style, {
-            position: 'fixed',
-            top: '10px',
-            right: '10px',
-            background: '#000',
-            color: '#0f0',
-            padding: '10px',
-            zIndex: 999999,
-            fontSize: '12px',
-            fontFamily: 'monospace',
-            maxHeight: '200px',
-            overflowY: 'auto',
-            borderRadius: '8px',
-            boxShadow: '0 0 10px rgba(0,255,0,0.4)'
-        });
-        box.innerHTML = '<strong>🔁 YouTube Unliker Ready</strong><br>';
-        document.body.appendChild(box);
-    }
-
-    function log(text, color = '#0f0') {
-        const box = document.getElementById('yt-unlike-status');
+    function logBox(text, color = '#0f0') {
+        const box = document.getElementById('unlike-box');
         if (!box) return;
         const line = document.createElement('div');
         line.textContent = text;
         line.style.color = color;
         box.appendChild(line);
         box.scrollTop = box.scrollHeight;
-        console.log(text);
     }
 
-    function notify(title, body) {
-        if (Notification.permission === "granted") {
-            new Notification(title, { body });
-        }
+    function createLogBox() {
+        const box = document.createElement('div');
+        box.id = 'unlike-box';
+        Object.assign(box.style, {
+            position: 'fixed',
+            top: '10px',
+            right: '10px',
+            background: '#111',
+            color: '#0f0',
+            padding: '10px',
+            zIndex: 999999,
+            fontSize: '13px',
+            fontFamily: 'monospace',
+            maxHeight: '250px',
+            overflowY: 'auto',
+            borderRadius: '8px',
+            boxShadow: '0 0 10px rgba(0,255,0,0.4)'
+        });
+        box.innerHTML = '<b>🟢 YouTube Mass Unliker</b><br>';
+        document.body.appendChild(box);
     }
 
-    function isOnLikedPlaylist() {
-        return new URLSearchParams(window.location.search).get("list") === "LL";
+    function isLikedVideosPage() {
+        return new URLSearchParams(location.search).get("list") === "LL";
+    }
+
+    function scrollDown() {
+        window.scrollBy(0, 3000);
     }
 
     async function sleep(ms) {
-        return new Promise(r => setTimeout(r, ms));
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async function unlikeVideos() {
-        const videos = document.querySelectorAll('ytd-playlist-video-renderer');
+    async function unlikeVisibleVideos() {
+        const videoItems = document.querySelectorAll('ytd-playlist-video-renderer');
 
-        for (const video of videos) {
-            const videoId = video.dataset.videoId;
+        for (let item of videoItems) {
+            const videoId = item.dataset.videoId;
+            const title = item.querySelector('#video-title')?.textContent.trim() || 'Untitled';
+
             if (processed.has(videoId)) continue;
 
-            const title = video.querySelector('#video-title')?.textContent?.trim() || 'Untitled';
+            const likeBtn = item.querySelector('ytd-toggle-button-renderer button[aria-pressed="true"]');
 
-            try {
-                // Use button that shows "Remove from Liked videos"
-                const menuButton = video.querySelector('ytd-menu-renderer yt-icon-button');
-
-                if (menuButton) {
-                    menuButton.click();
-                    await sleep(500);
-
-                    const menuItems = document.querySelectorAll('tp-yt-paper-listbox ytd-menu-service-item-renderer');
-                    for (let item of menuItems) {
-                        const label = item.textContent?.trim().toLowerCase();
-                        if (label.includes('remove from liked')) {
-                            item.click();
-                            log(`👍 Unliked: ${title}`);
-                            processed.add(videoId);
-                            await sleep(DELAY);
-                            break;
-                        }
-                    }
-                } else {
-                    log(`⏭️ Skipped (menu not found): ${title}`, '#888');
-                }
-            } catch (e) {
-                log(`❌ Failed: ${title}`, 'red');
-                notify('❌ Failed to unlike', title);
+            if (likeBtn) {
+                likeBtn.click();
+                processed.add(videoId);
+                logBox(`👍 Unliked: ${title}`);
+                await sleep(DELAY);
+            } else {
+                logBox(`⏭️ Skipped or already unliked: ${title}`, '#aaa');
             }
         }
     }
 
-    function scrollMore() {
-        window.scrollBy(0, 3000);
-    }
+    async function run() {
+        if (running) return;
+        running = true;
 
-    async function runScript() {
-        if (started) return;
-        started = true;
-
-        log('✅ Detected Liked Videos playlist. Running...');
-        notify('🔁 Started unliking', 'Working through your liked videos...');
-
+        logBox('✅ Starting to unlike liked videos...');
         while (true) {
-            scrollMore();
+            scrollDown();
             await sleep(1000);
-            await unlikeVideos();
+            await unlikeVisibleVideos();
         }
     }
 
     function init() {
-        createUI();
-        Notification.requestPermission();
-        log('⏳ Waiting for Liked Videos playlist...');
-
-        const watcher = setInterval(() => {
-            if (isOnLikedPlaylist()) {
+        createLogBox();
+        const check = setInterval(() => {
+            if (isLikedVideosPage()) {
                 const items = document.querySelectorAll('ytd-playlist-video-renderer');
                 if (items.length > 0) {
-                    clearInterval(watcher);
-                    runScript();
+                    clearInterval(check);
+                    logBox('🎯 Playlist detected. Running script...');
+                    run();
                 } else {
-                    log('⌛ Playlist found, waiting for videos...', '#ff0');
+                    logBox('⌛ Waiting for videos to load...', '#ff0');
                 }
             }
         }, 1500);
     }
 
-    window.addEventListener('load', init);
+    window.addEventListener('load', () => {
+        init();
+    });
 })();

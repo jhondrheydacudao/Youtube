@@ -1,74 +1,82 @@
 // ==UserScript==
-// @name         YouLikeHits Auto Like + Confirm + Refresh
-// @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Auto Like + Confirm on YouLikeHits YouTube Likes page with 30s wait and reload.
-// @match        https://youlikehits.com/youtubelikes.php*
-// @icon         https://youlikehits.com/favicon.ico
-// @grant        none
+// @name         YouTube Auto Unsubscribe All (WORKING)
+// @namespace    https://youtube.com/
+// @version      2.0
+// @description  Automatically unsubscribes from all YouTube channels on /feed/channels and shows progress notifications.
+// @author       Jhon DRHEY
+// @match        https://www.youtube.com/feed/channels
+// @grant        GM_notification
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    // --- Notification function ---
-    const notify = (text, type = "info") => {
-        const colors = {
-            info: "#2196F3",
-            success: "#4CAF50",
-            error: "#f44336"
-        };
-        const div = document.createElement("div");
-        div.textContent = text;
-        Object.assign(div.style, {
-            position: "fixed",
-            top: "20px",
-            right: "20px",
-            background: colors[type] || "#555",
-            color: "#fff",
-            padding: "10px 16px",
-            borderRadius: "8px",
-            zIndex: 9999,
-            fontFamily: "Arial, sans-serif",
-            fontSize: "14px",
-            boxShadow: "0 0 10px rgba(0,0,0,0.3)"
-        });
-        document.body.appendChild(div);
-        setTimeout(() => div.remove(), 5000);
-    };
+    let total = 0;
+    let unsubscribed = 0;
+    let scrollAttempts = 0;
+    const maxScrollAttempts = 20;
 
-    // --- Click "Like Video" Button ---
-    const clickLikeVideo = () => {
-        const likeBtn = document.querySelector('input[type="submit"][value="Like Video"]');
-        if (likeBtn) {
-            notify("🎬 Opening video to like...", "info");
-            likeBtn.click();
-        }
-    };
-
-    // --- Click "Confirm Like" Button and wait 30s before reload ---
-    const clickConfirmLike = () => {
-        const confirmBtn = document.querySelector('input[type="submit"][value="Confirm Like"]');
-        if (confirmBtn) {
-            confirmBtn.click();
-            notify("👍 Confirmed Like! Waiting 30s...", "success");
-
-            setTimeout(() => {
-                notify("🔄 Reloading for next task...", "info");
-                window.location.reload();
-            }, 30000);
-        }
-    };
-
-    // --- Start logic after slight delay to ensure DOM is ready ---
-    window.addEventListener('load', () => {
-        setTimeout(() => {
-            const confirmBtn = document.querySelector('input[type="submit"][value="Confirm Like"]');
-            if (confirmBtn) {
-                clickConfirmLike();
-            } else {
-                clickLikeVideo();
+    function notify(title, text) {
+        GM_notification({
+            title: title,
+            text: text,
+            timeout: 4000,
+            onclick: function () {
+                window.focus();
             }
-        }, 1000); // short delay
+        });
+    }
+
+    function autoScroll(callback) {
+        const scrollInterval = setInterval(() => {
+            const beforeHeight = document.documentElement.scrollHeight;
+            window.scrollTo(0, beforeHeight);
+            scrollAttempts++;
+
+            if (scrollAttempts >= maxScrollAttempts) {
+                clearInterval(scrollInterval);
+                notify('Scroll Complete', 'Finished loading channels. Starting unsubscribe...');
+                callback();
+            }
+        }, 1500);
+    }
+
+    function startUnsubscribing() {
+        const buttons = Array.from(document.querySelectorAll('ytd-channel-renderer tp-yt-paper-button[aria-label*="Subscribed"]'));
+        total = buttons.length;
+
+        if (total === 0) {
+            notify('YouTube Auto Unsubscribe', 'No subscriptions found or already unsubscribed.');
+            return;
+        }
+
+        notify('Starting Unsubscribe', `Found ${total} subscriptions.`);
+
+        let delay = 0;
+        buttons.forEach((btn, i) => {
+            setTimeout(() => {
+                btn.click();
+
+                setTimeout(() => {
+                    const confirmBtn = document.querySelector('yt-confirm-dialog-renderer tp-yt-paper-button#confirm-button');
+                    if (confirmBtn) {
+                        confirmBtn.click();
+                        unsubscribed++;
+                        notify(`Unsubscribed (${unsubscribed}/${total})`, `Channel ${i + 1} unsubscribed.`);
+                    }
+                }, 700);
+
+            }, delay);
+
+            delay += 2000; // delay between each unsubscribe to avoid rate limits
+        });
+    }
+
+    window.addEventListener('load', () => {
+        notify('YouTube Auto Unsubscribe', 'Preparing to scroll and fetch all channels...');
+        setTimeout(() => {
+            autoScroll(startUnsubscribing);
+        }, 3000);
     });
+
 })();

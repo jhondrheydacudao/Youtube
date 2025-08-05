@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name         YouTube Auto Unsubscribe (FIXED + NOTIFICATIONS)
+// @name         YouTube Auto Unsubscribe (In-Page Notifications)
 // @namespace    https://youtube.com/
-// @version      2.1
-// @description  Automatically unsubscribes from all channels on YouTube /feed/channels with progress notifications and confirmation clicking support (2025 Update). Use at your own risk! 🔥🔥🔥
+// @version      3.1
+// @description  Unsubscribes from all channels on YouTube /feed/channels with visible on-page notifications instead of browser popups (2025 FIXED version). ⚠️ Use carefully! ⚠️
 // @author       Jhon DRHEY
 // @match        https://www.youtube.com/feed/channels
-// @grant        GM_notification
+// @grant        none
 // @run-at       document-end
 // ==/UserScript==
 
@@ -14,97 +14,123 @@
 
     let unsubscribed = 0;
     let total = 0;
-    let interval;
-    let channelIndex = 0;
-    let channels = [];
+    let index = 0;
+    let buttons = [];
 
-    function notify(title, text) {
-        GM_notification({
-            title: title,
-            text: text,
-            timeout: 5000,
-            onclick: () => window.focus(),
-        });
+    // Injects a floating notification box
+    function createNotificationContainer() {
+        const container = document.createElement('div');
+        container.id = 'yt-auto-unsub-notifier';
+        container.style.position = 'fixed';
+        container.style.top = '10px';
+        container.style.right = '10px';
+        container.style.width = '300px';
+        container.style.maxHeight = '80vh';
+        container.style.overflowY = 'auto';
+        container.style.zIndex = '99999';
+        container.style.fontFamily = 'Arial, sans-serif';
+        container.style.fontSize = '14px';
+        container.style.backgroundColor = '#fff';
+        container.style.border = '1px solid #ccc';
+        container.style.borderRadius = '8px';
+        container.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
+        container.style.padding = '10px';
+        container.innerHTML = `<strong style="display:block; margin-bottom:5px;">📣 YouTube Auto Unsubscribe</strong>`;
+        document.body.appendChild(container);
     }
 
-    // Scroll to bottom to load all channels
-    async function scrollToLoadAllChannels(callback) {
-        let lastHeight = 0;
-        let attempts = 0;
-        const maxAttempts = 25;
+    function addNotification(text) {
+        const container = document.getElementById('yt-auto-unsub-notifier');
+        if (!container) return;
+        const note = document.createElement('div');
+        note.textContent = text;
+        note.style.marginBottom = '4px';
+        note.style.padding = '4px 6px';
+        note.style.backgroundColor = '#f1f1f1';
+        note.style.borderRadius = '4px';
+        container.appendChild(note);
+        container.scrollTop = container.scrollHeight;
+    }
 
-        const scrollInterval = setInterval(() => {
+    function autoScrollToLoadAll(callback) {
+        let lastHeight = 0;
+        let retries = 0;
+        const maxRetries = 20;
+
+        const interval = setInterval(() => {
             window.scrollTo(0, document.body.scrollHeight);
             const newHeight = document.body.scrollHeight;
 
             if (newHeight === lastHeight) {
-                attempts++;
+                retries++;
             } else {
-                attempts = 0;
+                retries = 0;
+                lastHeight = newHeight;
             }
 
-            lastHeight = newHeight;
-
-            if (attempts >= 5 || attempts >= maxAttempts) {
-                clearInterval(scrollInterval);
-                notify('✅ Channels Loaded', 'Beginning unsubscribe process...');
-                setTimeout(callback, 2000);
+            if (retries >= 5) {
+                clearInterval(interval);
+                addNotification('✅ Finished loading all channels.');
+                callback();
             }
-        }, 1500);
+        }, 1000);
     }
 
-    function collectSubscribedButtons() {
-        const buttons = Array.from(document.querySelectorAll('ytd-channel-renderer tp-yt-paper-button[aria-label][subscribed]'))
-            .filter(btn => btn.innerText.trim().toLowerCase() === "subscribed");
-
-        return buttons;
+    function collectButtons() {
+        const btns = Array.from(document.querySelectorAll('ytd-channel-renderer tp-yt-paper-button[aria-label*="Subscribed"]'));
+        return btns.filter(btn => btn.innerText.trim().toLowerCase() === 'subscribed');
     }
 
-    function startUnsubscribing() {
-        channels = collectSubscribedButtons();
-        total = channels.length;
+    function clickConfirmDialog() {
+        const confirmBtn = document.querySelector('yt-confirm-dialog-renderer tp-yt-paper-button#confirm-button');
+        if (confirmBtn) {
+            confirmBtn.click();
+        }
+    }
 
-        if (total === 0) {
-            notify('📭 No Subscriptions', 'You have no subscribed channels.');
+    function unsubscribeNext() {
+        if (index >= buttons.length) {
+            addNotification(`🎉 Done! Unsubscribed from ${unsubscribed} out of ${total} channels.`);
             return;
         }
 
-        notify('📣 Starting...', `Unsubscribing from ${total} channels...`);
+        const button = buttons[index];
+        if (!button || button.disabled) {
+            index++;
+            unsubscribeNext();
+            return;
+        }
 
-        interval = setInterval(() => {
-            if (channelIndex >= channels.length) {
-                clearInterval(interval);
-                notify('✅ Done!', `Unsubscribed from ${unsubscribed} out of ${total} channels.`);
-                return;
-            }
+        button.click(); // Open confirm popup
 
-            const button = channels[channelIndex];
-            if (!button) {
-                channelIndex++;
-                return;
-            }
-
-            button.click();
-
-            setTimeout(() => {
-                const confirmBtn = document.querySelector('yt-confirm-dialog-renderer tp-yt-paper-button#confirm-button');
-
-                if (confirmBtn) {
-                    confirmBtn.click();
-                    unsubscribed++;
-                    notify(`🚫 Unsubscribed (${unsubscribed}/${total})`, `Channel ${channelIndex + 1}`);
-                }
-            }, 500);
-
-            channelIndex++;
-        }, 2500); // 2.5s delay between each unsubscribe to avoid rate limits
+        setTimeout(() => {
+            clickConfirmDialog(); // Click confirm
+            unsubscribed++;
+            addNotification(`🚫 Unsubscribed (${unsubscribed}/${total}) - Channel #${index + 1}`);
+            index++;
+            setTimeout(unsubscribeNext, 2000); // Delay for safety
+        }, 700);
     }
 
-    // Start everything
+    function startUnsubscribing() {
+        buttons = collectButtons();
+        total = buttons.length;
+
+        if (total === 0) {
+            addNotification('📭 No subscriptions found to unsubscribe.');
+            return;
+        }
+
+        addNotification(`Found ${total} subscriptions. Starting to unsubscribe...`);
+        unsubscribeNext();
+    }
+
+    // Start script
     window.addEventListener('load', () => {
-        notify('🔄 Loading...', 'Scrolling to load all channels...');
         setTimeout(() => {
-            scrollToLoadAllChannels(startUnsubscribing);
-        }, 3000);
+            createNotificationContainer();
+            addNotification('🔁 Scrolling to load all channels...');
+            autoScrollToLoadAll(startUnsubscribing);
+        }, 2000);
     });
 })();

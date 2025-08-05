@@ -1,82 +1,110 @@
 // ==UserScript==
-// @name         YouTube Auto Unsubscribe All (WORKING)
+// @name         YouTube Auto Unsubscribe (FIXED + NOTIFICATIONS)
 // @namespace    https://youtube.com/
-// @version      2.0
-// @description  Automatically unsubscribes from all YouTube channels on /feed/channels and shows progress notifications.
+// @version      2.1
+// @description  Automatically unsubscribes from all channels on YouTube /feed/channels with progress notifications and confirmation clicking support (2025 Update). Use at your own risk! 🔥🔥🔥
 // @author       Jhon DRHEY
 // @match        https://www.youtube.com/feed/channels
 // @grant        GM_notification
+// @run-at       document-end
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    let total = 0;
     let unsubscribed = 0;
-    let scrollAttempts = 0;
-    const maxScrollAttempts = 20;
+    let total = 0;
+    let interval;
+    let channelIndex = 0;
+    let channels = [];
 
     function notify(title, text) {
         GM_notification({
             title: title,
             text: text,
-            timeout: 4000,
-            onclick: function () {
-                window.focus();
-            }
+            timeout: 5000,
+            onclick: () => window.focus(),
         });
     }
 
-    function autoScroll(callback) {
-        const scrollInterval = setInterval(() => {
-            const beforeHeight = document.documentElement.scrollHeight;
-            window.scrollTo(0, beforeHeight);
-            scrollAttempts++;
+    // Scroll to bottom to load all channels
+    async function scrollToLoadAllChannels(callback) {
+        let lastHeight = 0;
+        let attempts = 0;
+        const maxAttempts = 25;
 
-            if (scrollAttempts >= maxScrollAttempts) {
+        const scrollInterval = setInterval(() => {
+            window.scrollTo(0, document.body.scrollHeight);
+            const newHeight = document.body.scrollHeight;
+
+            if (newHeight === lastHeight) {
+                attempts++;
+            } else {
+                attempts = 0;
+            }
+
+            lastHeight = newHeight;
+
+            if (attempts >= 5 || attempts >= maxAttempts) {
                 clearInterval(scrollInterval);
-                notify('Scroll Complete', 'Finished loading channels. Starting unsubscribe...');
-                callback();
+                notify('✅ Channels Loaded', 'Beginning unsubscribe process...');
+                setTimeout(callback, 2000);
             }
         }, 1500);
     }
 
+    function collectSubscribedButtons() {
+        const buttons = Array.from(document.querySelectorAll('ytd-channel-renderer tp-yt-paper-button[aria-label][subscribed]'))
+            .filter(btn => btn.innerText.trim().toLowerCase() === "subscribed");
+
+        return buttons;
+    }
+
     function startUnsubscribing() {
-        const buttons = Array.from(document.querySelectorAll('ytd-channel-renderer tp-yt-paper-button[aria-label*="Subscribed"]'));
-        total = buttons.length;
+        channels = collectSubscribedButtons();
+        total = channels.length;
 
         if (total === 0) {
-            notify('YouTube Auto Unsubscribe', 'No subscriptions found or already unsubscribed.');
+            notify('📭 No Subscriptions', 'You have no subscribed channels.');
             return;
         }
 
-        notify('Starting Unsubscribe', `Found ${total} subscriptions.`);
+        notify('📣 Starting...', `Unsubscribing from ${total} channels...`);
 
-        let delay = 0;
-        buttons.forEach((btn, i) => {
+        interval = setInterval(() => {
+            if (channelIndex >= channels.length) {
+                clearInterval(interval);
+                notify('✅ Done!', `Unsubscribed from ${unsubscribed} out of ${total} channels.`);
+                return;
+            }
+
+            const button = channels[channelIndex];
+            if (!button) {
+                channelIndex++;
+                return;
+            }
+
+            button.click();
+
             setTimeout(() => {
-                btn.click();
+                const confirmBtn = document.querySelector('yt-confirm-dialog-renderer tp-yt-paper-button#confirm-button');
 
-                setTimeout(() => {
-                    const confirmBtn = document.querySelector('yt-confirm-dialog-renderer tp-yt-paper-button#confirm-button');
-                    if (confirmBtn) {
-                        confirmBtn.click();
-                        unsubscribed++;
-                        notify(`Unsubscribed (${unsubscribed}/${total})`, `Channel ${i + 1} unsubscribed.`);
-                    }
-                }, 700);
+                if (confirmBtn) {
+                    confirmBtn.click();
+                    unsubscribed++;
+                    notify(`🚫 Unsubscribed (${unsubscribed}/${total})`, `Channel ${channelIndex + 1}`);
+                }
+            }, 500);
 
-            }, delay);
-
-            delay += 2000; // delay between each unsubscribe to avoid rate limits
-        });
+            channelIndex++;
+        }, 2500); // 2.5s delay between each unsubscribe to avoid rate limits
     }
 
+    // Start everything
     window.addEventListener('load', () => {
-        notify('YouTube Auto Unsubscribe', 'Preparing to scroll and fetch all channels...');
+        notify('🔄 Loading...', 'Scrolling to load all channels...');
         setTimeout(() => {
-            autoScroll(startUnsubscribing);
+            scrollToLoadAllChannels(startUnsubscribing);
         }, 3000);
     });
-
 })();
